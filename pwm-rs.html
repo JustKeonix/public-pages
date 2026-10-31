@@ -1,0 +1,246 @@
+<title>ШИМ на RS-триггере</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Golos+Text:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: control strip → schematic panel beside readouts → logic-analyzer waveform → notes */
+:root{
+  --bg:#f3f5f4; --panel:#ffffff; --fg:#17201d; --muted:#5d6a65; --line:#d3dbd8;
+  --accent:#0f7b6c; --accent-soft:#d8efea; --hi:#d9480f; --hi-soft:#fde4d6; --led-off:#3a2a22;
+  --sans:"Golos Text",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,"SFMono-Regular",Menlo,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#111715; --panel:#18211e; --fg:#e4ece9; --muted:#9aaba5; --line:#2c3a35;
+  --accent:#3cc4ae; --accent-soft:#163a33; --hi:#ff8a4c; --hi-soft:#3d2216; --led-off:#2a1c16; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#111715; --panel:#18211e; --fg:#e4ece9; --muted:#9aaba5; --line:#2c3a35;
+  --accent:#3cc4ae; --accent-soft:#163a33; --hi:#ff8a4c; --hi-soft:#3d2216; --led-off:#2a1c16; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font-family:var(--sans);font-size:15px;line-height:1.5;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:24px 40px}
+.wrap{max-width:1040px;margin:0 auto;display:flex;flex-direction:column;gap:18px}
+h1{font-size:26px;margin:0;font-weight:700;text-wrap:balance}
+.lead{margin:4px 0 0;color:var(--muted);max-width:68ch}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px}
+.controls{display:flex;flex-wrap:wrap;gap:14px 22px;align-items:end}
+.field{display:flex;flex-direction:column;gap:6px;min-width:0}
+.label{font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:600}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.seg button{border:0;background:transparent;color:var(--fg);font:inherit;font-size:14px;padding:7px 12px;cursor:pointer}
+.seg button[aria-pressed="true"]{background:var(--accent);color:#fff}
+.btns{display:flex;flex-wrap:wrap;gap:8px}
+.btn{font:inherit;font-size:14px;font-weight:600;border:1px solid var(--line);background:var(--panel);color:var(--fg);border-radius:8px;padding:7px 14px;cursor:pointer}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+.btn:focus-visible,.seg button:focus-visible,input:focus-visible{outline:2px solid var(--hi);outline-offset:2px}
+input[type=range]{width:220px;max-width:100%;accent-color:var(--accent)}
+.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.grid{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1fr);gap:18px}
+@media (max-width:760px){.grid{grid-template-columns:1fr}}
+.schem{width:100%;height:auto;display:block}
+.read{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.cell{border:1px solid var(--line);border-radius:8px;padding:10px 12px;min-width:0}
+.cell .v{font-family:var(--mono);font-size:26px;font-weight:600;font-variant-numeric:tabular-nums}
+.cell .s{font-size:12.5px;color:var(--muted)}
+.ledbox{grid-column:1/-1;display:flex;align-items:center;gap:16px}
+.led{width:58px;height:58px;border-radius:50%;background:var(--led-off);flex:none;position:relative;transition:box-shadow .15s}
+.led::after{content:"";position:absolute;inset:0;border-radius:50%;background:radial-gradient(circle at 40% 35%,#fff7d6,#ffc23d 45%,#ff7a1a 80%);opacity:var(--glow,0);transition:opacity .12s}
+.wave-wrap{overflow-x:auto}
+.wave{display:block;min-width:640px;width:100%;height:auto}
+.notes{color:var(--muted);font-size:14px;max-width:75ch;display:flex;flex-direction:column;gap:6px}
+.notes b{color:var(--fg)}
+code{font-family:var(--mono);font-size:.92em;background:var(--accent-soft);padding:1px 5px;border-radius:4px}
+@media (prefers-reduced-motion:reduce){.led,.led::after{transition:none}}
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>Генератор ШИМ на RS-триггере</h1>
+    <p class="lead">Подавайте такты и смотрите, как значение счётчика превращается в импульсы. Компаратор сравнивает счётчик с 0 и с h: на 0 триггер включается, на h выключается.</p>
+  </header>
+
+  <section class="panel controls" aria-label="Управление">
+    <div class="field">
+      <span class="label">Период M</span>
+      <div class="seg" role="group" aria-label="Период">
+        <button id="m8" aria-pressed="true">8</button>
+        <button id="m16" aria-pressed="false">16</button>
+      </div>
+    </div>
+    <div class="field">
+      <label class="label" for="h">Ширина импульса h = <span id="hval" class="mono">3</span></label>
+      <input id="h" type="range" min="0" max="8" value="3">
+    </div>
+    <div class="field">
+      <span class="label">Вход</span>
+      <div class="btns">
+        <button class="btn primary" id="tick">Такт c</button>
+        <button class="btn" id="stop">Пауза s</button>
+        <button class="btn" id="run">▶ Авто</button>
+        <button class="btn" id="fast">Быстро</button>
+        <button class="btn" id="reset">Сброс</button>
+      </div>
+    </div>
+  </section>
+
+  <div class="grid">
+    <section class="panel" aria-label="Схема устройства">
+      <svg id="schem" class="schem" viewBox="0 0 600 300" role="img" aria-label="Состояние счётчика, компаратора и выхода"></svg>
+    </section>
+    <section class="panel read" aria-label="Показания">
+      <div class="cell"><div class="label">Счётчик cnt</div><div class="v" id="r-cnt">0</div><div class="s">скрыт: снаружи не виден</div></div>
+      <div class="cell"><div class="label">Выход pwm_out</div><div class="v" id="r-out">0</div><div class="s" id="r-why">триггер хранит значение</div></div>
+      <div class="cell"><div class="label">Заполнение h/M</div><div class="v" id="r-duty">37,5 %</div><div class="s" id="r-frac">3 из 8 тактов</div></div>
+      <div class="cell"><div class="label">Тактов подано</div><div class="v" id="r-t">0</div><div class="s" id="r-q">&nbsp;</div></div>
+      <div class="ledbox cell">
+        <div class="led" id="led" aria-hidden="true"></div>
+        <div><div class="label">Светодиод</div><div class="mono" id="r-led" style="font-size:18px;font-weight:600">—</div><div class="s">яркость = средний выход за последний период</div></div>
+      </div>
+    </section>
+  </div>
+
+  <section class="panel" aria-label="Временная диаграмма">
+    <div class="label" style="margin-bottom:8px">Временная диаграмма — последние 32 такта</div>
+    <div class="wave-wrap"><svg id="wave" class="wave" viewBox="0 0 960 200" role="img" aria-label="Временная диаграмма входа, счётчика и выхода"></svg></div>
+  </section>
+
+  <section class="notes">
+    <div><b>Как работает.</b> Такт c прибавляет к счётчику 1 по модулю M, пауза s его останавливает. Когда счётчик доходит до 0, компаратор подаёт S и триггер включается; на значении h подаёт R и триггер выключается. Выход равен состоянию триггера: 1 в течение h тактов из M.</div>
+    <div><b>Яркость.</b> Чем больше h, тем ярче светодиод: его яркость равна коэффициенту заполнения h/M. Режим «Быстро» показывает это наглядно.</div>
+    <div><b>Первый импульс.</b> Триггер стартует в 0, поэтому после сброса первый импульс пропадает, если сразу начать счёт. Начните с «Паузы», и импульс пойдёт сразу.</div>
+  </section>
+</div>
+
+<script>
+(() => {
+  const st = { M: 8, h: 3, cnt: 0, q: 0, t: 0, hist: [], timer: null, speed: 350 };
+  const $ = id => document.getElementById(id);
+  const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+
+
+  function step(sym) {
+    if (sym === 'c') st.cnt = (st.cnt + 1) % st.M;
+    if (st.cnt === 0) st.q = 1; else if (st.cnt === st.h) st.q = 0;
+    st.t++;
+    st.hist.push({ sym, cnt: st.cnt, q: st.q, out: st.q });
+    if (st.hist.length > 64) st.hist.shift();
+    render();
+  }
+
+  function reset() {
+    stopRun();
+    st.cnt = 0; st.q = 0; st.t = 0; st.hist = [];
+    render();
+  }
+
+  function stopRun() { if (st.timer) { clearInterval(st.timer); st.timer = null; } $('run').textContent = '▶ Авто'; }
+  function startRun(ms) {
+    stopRun(); st.speed = ms;
+    st.timer = setInterval(() => step('c'), ms);
+    $('run').textContent = '■ Стоп';
+  }
+
+  const pct = x => (Math.round(x * 1000) / 10).toString().replace('.', ',') + ' %';
+
+  function render() {
+    const curOut = st.q;
+    $('r-cnt').textContent = st.cnt;
+    $('r-out').textContent = curOut;
+    $('r-why').textContent = (st.cnt === 0 && st.t > 0 ? 'cnt = 0 → установка' : st.cnt === st.h && st.t > 0 ? `cnt = ${st.h} → сброс` : 'триггер хранит значение');
+    $('r-duty').textContent = pct(st.h / st.M);
+    $('r-frac').textContent = `${st.h} из ${st.M} тактов`;
+    $('r-t').textContent = st.t;
+    $('r-q').textContent = `триггер q = ${st.q}`;
+    $('hval').textContent = st.h;
+    const win = st.hist.slice(-st.M);
+    const avg = win.length ? win.reduce((a, r) => a + r.out, 0) / win.length : 0;
+    const fastMode = st.timer && st.speed < 100;
+    $('led').style.setProperty('--glow', fastMode ? avg.toFixed(2) : curOut);
+    $('r-led').textContent = win.length >= st.M ? `${pct(avg)} яркости` : `нужен полный период (${win.length}/${st.M})`;
+    drawSchem(curOut); drawWave();
+  }
+
+  function drawSchem(out) {
+    const fg = css('--fg'), mu = css('--muted'), ln = css('--line'), ac = css('--accent'), acs = css('--accent-soft'), hi = css('--hi'), his = css('--hi-soft');
+    const M = st.M, cx = 120, cy = 150, R = 92;
+    let s = `<defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0L10 5L0 10z" fill="${mu}"/></marker></defs>`;
+    s += `<text x="${cx}" y="24" text-anchor="middle" font-size="13" font-weight="600" fill="${fg}" font-family="Golos Text,sans-serif">A: счётчик mod ${M}</text>`;
+    for (let k = 0; k < M; k++) {
+      const a = (-90 + 360 * k / M) * Math.PI / 180, x = cx + R * Math.cos(a), y = cy + R * Math.sin(a);
+      const cur = k === st.cnt, inPulse = k < st.h;
+      const r = M > 8 ? 13 : 17;
+      s += `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${r}" fill="${cur ? ac : (inPulse ? his : 'none')}" stroke="${cur ? ac : (inPulse ? hi : ln)}" stroke-width="${cur ? 2 : 1.25}"/>`;
+      s += `<text x="${x.toFixed(1)}" y="${(y + 4.5).toFixed(1)}" text-anchor="middle" font-size="${M > 8 ? 11 : 13}" font-family="JetBrains Mono,monospace" fill="${cur ? '#fff' : fg}">${k}</text>`;
+    }
+    s += `<text x="${cx}" y="${cy - 4}" text-anchor="middle" font-size="11" fill="${mu}" font-family="Golos Text,sans-serif">значения</text><text x="${cx}" y="${cy + 12}" text-anchor="middle" font-size="11" fill="${hi}" font-family="Golos Text,sans-serif">0…${Math.max(0, st.h - 1)} — импульс</text>`;
+    // comparator
+    s += `<path d="M230 150H288" stroke="${mu}" stroke-width="1.25" marker-end="url(#ar)"/>`;
+    s += `<text x="259" y="141" text-anchor="middle" font-size="11" fill="${mu}" font-family="JetBrains Mono,monospace">cnt=${st.cnt}</text>`;
+    s += `<rect x="290" y="112" width="128" height="76" rx="8" fill="none" stroke="${ln}" stroke-width="1.25"/>`;
+    s += `<text x="354" y="138" text-anchor="middle" font-size="13" font-weight="600" fill="${fg}" font-family="Golos Text,sans-serif">Компаратор</text>`;
+    const cmp = `=0 ? / =${st.h} ?`;
+    s += `<text x="354" y="162" text-anchor="middle" font-size="12" fill="${mu}" font-family="JetBrains Mono,monospace">${cmp}</text>`;
+    let ox = 418;
+    {
+      s += `<path d="M418 136H456" stroke="${mu}" stroke-width="1.25" marker-end="url(#ar)"/><path d="M418 164H456" stroke="${mu}" stroke-width="1.25" marker-end="url(#ar)"/>`;
+      s += `<text x="437" y="130" text-anchor="middle" font-size="11" fill="${mu}" font-family="JetBrains Mono,monospace">S</text><text x="437" y="180" text-anchor="middle" font-size="11" fill="${mu}" font-family="JetBrains Mono,monospace">R</text>`;
+      s += `<rect x="458" y="118" width="70" height="64" rx="8" fill="${st.q ? acs : 'none'}" stroke="${st.q ? ac : ln}" stroke-width="${st.q ? 2 : 1.25}"/>`;
+      s += `<text x="493" y="144" text-anchor="middle" font-size="12.5" font-weight="600" fill="${fg}" font-family="Golos Text,sans-serif">RS</text><text x="493" y="165" text-anchor="middle" font-size="12" fill="${fg}" font-family="JetBrains Mono,monospace">q=${st.q}</text>`;
+      ox = 528;
+    }
+    s += `<path d="M${ox} 150H${ox + 30}" stroke="${mu}" stroke-width="1.25" marker-end="url(#ar)"/>`;
+    s += `<rect x="${ox + 32}" y="134" width="34" height="32" rx="6" fill="${out ? hi : 'none'}" stroke="${out ? hi : ln}" stroke-width="1.5"/><text x="${ox + 49}" y="155" text-anchor="middle" font-size="14" font-weight="600" font-family="JetBrains Mono,monospace" fill="${out ? '#fff' : fg}">${out}</text>`;
+    s += `<text x="${ox + 49}" y="124" text-anchor="middle" font-size="11" fill="${mu}" font-family="Golos Text,sans-serif">выход</text>`;
+    s += `<text x="410" y="24" text-anchor="middle" font-size="13" font-weight="600" fill="${fg}" font-family="Golos Text,sans-serif">B: компаратор + RS-триггер</text>`;
+    s += `<text x="300" y="250" text-anchor="middle" font-size="11.5" fill="${mu}" font-family="Golos Text,sans-serif">канал cnt между A и B недоступен: наблюдается только выход</text>`;
+    $('schem').innerHTML = s;
+  }
+
+  function drawWave() {
+    const fg = css('--fg'), mu = css('--muted'), ln = css('--line'), ac = css('--accent'), hi = css('--hi');
+    const N = 32, x0 = 110, cw = (960 - x0 - 10) / N;
+    const rows = st.hist.slice(-N);
+    const yIn = 34, yCnt = 72, yQ = 110, yOutHi = 140, yOutLo = 176;
+    let s = '';
+    const lab = (y, t) => `<text x="8" y="${y + 4}" font-size="12.5" fill="${mu}" font-family="Golos Text,sans-serif">${t}</text>`;
+    s += lab(yIn, 'вход'); s += lab(yCnt, 'cnt (скрыт)');
+    s += lab(yQ, 'триггер q');
+    s += lab((yOutHi + yOutLo) / 2, 'выход');
+    for (let i = 0; i <= N; i++) s += `<line x1="${x0 + i * cw}" x2="${x0 + i * cw}" y1="16" y2="190" stroke="${ln}" stroke-width="${i % 8 === 0 ? 1 : .5}"/>`;
+    let path = '', prev = null;
+    rows.forEach((r, i) => {
+      const x = x0 + i * cw, mid = x + cw / 2;
+      s += `<text x="${mid}" y="${yIn + 4}" text-anchor="middle" font-size="12" font-family="JetBrains Mono,monospace" fill="${r.sym === 's' ? hi : fg}">${r.sym}</text>`;
+      s += `<text x="${mid}" y="${yCnt + 4}" text-anchor="middle" font-size="12" font-family="JetBrains Mono,monospace" fill="${fg}">${r.cnt}</text>`;
+      s += `<text x="${mid}" y="${yQ + 4}" text-anchor="middle" font-size="12" font-family="JetBrains Mono,monospace" fill="${mu}">${r.q}</text>`;
+      const y = r.out ? yOutHi : yOutLo;
+      if (prev === null) path += `M${x} ${y}`; else if (prev !== y) path += `V${y}`;
+      path += `H${x + cw}`; prev = y;
+      if (r.out) s += `<rect x="${x}" y="${yOutHi}" width="${cw}" height="${yOutLo - yOutHi}" fill="${hi}" opacity=".12"/>`;
+    });
+    if (path) s += `<path d="${path}" fill="none" stroke="${hi}" stroke-width="2.5" stroke-linejoin="round"/>`;
+    else s += `<text x="${x0 + 10}" y="${yCnt + 4}" font-size="13" fill="${mu}" font-family="Golos Text,sans-serif">Нажмите «Такт c» или «Авто», чтобы подать такты</text>`;
+    $('wave').innerHTML = s;
+  }
+
+  function setM(M) {
+    st.M = M; $('h').max = M; if (st.h > M) st.h = M; $('h').value = st.h;
+    $('m8').setAttribute('aria-pressed', M === 8); $('m16').setAttribute('aria-pressed', M === 16);
+    reset();
+  }
+
+  $('m8').onclick = () => setM(8);
+  $('m16').onclick = () => setM(16);
+  $('h').oninput = e => { st.h = +e.target.value; render(); };
+  $('tick').onclick = () => step('c');
+  $('stop').onclick = () => step('s');
+  $('reset').onclick = reset;
+  $('run').onclick = () => st.timer ? stopRun() : startRun(350);
+  $('fast').onclick = () => startRun(40);
+
+  // start in a working state: one full period already played
+  for (let i = 0; i < 12; i++) step('c');
+  matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change', render);
+  new MutationObserver(render).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+})();
+</script>
